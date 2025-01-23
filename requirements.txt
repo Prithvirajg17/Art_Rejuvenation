@@ -1,0 +1,10 @@
+torch
+torchvision
+torchaudio
+diffusers
+transformers
+pillow
+matplotlib
+streamlit
+tk
+gradio
