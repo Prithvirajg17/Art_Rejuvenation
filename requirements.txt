@@ -8,3 +8,5 @@ matplotlib
 streamlit
 tk
 gradio
+Cloudant
+os
