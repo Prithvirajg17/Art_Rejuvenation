@@ -4,16 +4,30 @@ from diffusers import AutoPipelineForInpainting
 from PIL import Image
 import tempfile
 import os
+from cloudant.client import Cloudant
+from cloudant.error import CloudantException
+from io import BytesIO
+import base64
 
+# Configure the Cloudant client
+CLOUDANT_USERNAME = "f8b366e8-91d7-4875-8f50-c352ccb8a688-bluemix"
+CLOUDANT_API_KEY = "EXQ_7-gxRJa2rm57fK4IPenIs1MHhAOJaCsuTbLNr3J3"
+CLOUDANT_URL = "https://f8b366e8-91d7-4875-8f50-c352ccb8a688-bluemix.cloudantnosqldb.appdomain.cloud"
+
+client = Cloudant.iam(CLOUDANT_USERNAME, CLOUDANT_API_KEY, connect=True)
+db_name = "reconstruct"
+if db_name not in client.all_dbs():
+    client.create_database(db_name)
+db = client[db_name]
+
+# Load the inpainting pipeline
 pipeline = AutoPipelineForInpainting.from_pretrained(
     "runwayml/stable-diffusion-inpainting",
     variant="fp16"
 )
 
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
 pipeline.to(device)
-
 
 generator = torch.manual_seed(92)
 if device == "cuda":
@@ -37,6 +51,26 @@ def save_image(image):
         image.save(temp_file, format="PNG")
         return temp_file.name
 
+def save_to_cloudant(image, prompt):
+    """Save the reconstructed image and prompt to IBM Cloudant."""
+    try:
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        image_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+        # Create a document with the image and prompt
+        doc = {
+            "prompt": prompt,
+            "image": {
+                "data": image_data,
+                "format": "png"
+            }
+        }
+        db.create_document(doc)
+        return "Image successfully stored in Cloudant."
+    except Exception as e:
+        return f"Failed to store image in Cloudant: {str(e)}"
+
 def main(init_image, mask_image, prompt):
     try:
         init_image = Image.open(init_image).convert("RGB")
@@ -52,7 +86,10 @@ def main(init_image, mask_image, prompt):
     if not isinstance(result, Image.Image):
         return None, None, "Inpainting did not return a valid image."
 
-    return save_image(init_image), save_image(mask_image), save_image(result)
+    # Save to Cloudant
+    cloudant_message = save_to_cloudant(result, prompt)
+
+    return save_image(init_image), save_image(mask_image), save_image(result), cloudant_message
 
 with gr.Blocks(
     theme=gr.themes.Soft(),
@@ -87,12 +124,12 @@ with gr.Blocks(
         init_image_output = gr.Image(label="Original Image", width=300, height=400)
         mask_image_output = gr.Image(label="Mask Image", width=300, height=400)
         result_output = gr.Image(label="Reconstructed Image", width=300, height=400)
+        cloudant_status = gr.Textbox(label="Cloudant Status", interactive=False)
 
     inpaint_button.click(
         main,
         inputs=[init_image_input, mask_image_input, prompt_input],
-        outputs=[init_image_output, mask_image_output, result_output]
+        outputs=[init_image_output, mask_image_output, result_output, cloudant_status]
     )
-
 
 demo.launch(share=True)
