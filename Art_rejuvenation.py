@@ -20,7 +20,6 @@ if db_name not in client.all_dbs():
     client.create_database(db_name)
 db = client[db_name]
 
-# Load the inpainting pipeline
 pipeline = AutoPipelineForInpainting.from_pretrained(
     "runwayml/stable-diffusion-inpainting",
     variant="fp16"
